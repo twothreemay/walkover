@@ -1,27 +1,21 @@
 import { app, HttpResponseInit } from "@azure/functions";
-import { adminRequired, isAdmin, principal } from "../lib/auth.js";
-import { ensureTables, entity, filesTable, observationsTable, projectsTable, sharesTable } from "../lib/storage.js";
+import { adminName, adminRequired } from "../lib/auth.js";
+import { clean, ensureTables, escapeOData, exactCode, history, list, table } from "../lib/storage.js";
 
 app.http("shares", {
   methods: ["GET", "POST"], authLevel: "anonymous", route: "projects/{projectId}/shares",
   handler: async (request): Promise<HttpResponseInit> => {
-    if (!isAdmin(request)) return adminRequired();
+    const denied = adminRequired(request); if (denied) return denied;
     await ensureTables();
-    const table = sharesTable();
-    if (request.method === "GET") {
-      const shares = [];
-      for await (const item of table.listEntities({ queryOptions: { filter: `projectId eq '${request.params.projectId.replaceAll("'", "''")}'` } })) shares.push(entity(item));
-      return { jsonBody: { shares } };
-    }
-    const body = await request.json() as { label?: string; expiresAt?: string };
+    if (request.method === "GET") return { jsonBody: { shares: await list("shares", `projectId eq '${escapeOData(request.params.projectId)}'`) } };
+    const body = await request.json() as { code?: string; label?: string; expiresAt?: string };
+    const code = exactCode(body.code || "");
+    if (!code) return { status: 400, jsonBody: { error: "Share code must contain exactly 10 letters or numbers" } };
+    if ((await list("shares", `code eq '${escapeOData(code)}' and revoked eq false`)).length) return { status: 409, jsonBody: { error: "That share code is already active" } };
     const token = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-    const share = {
-      partitionKey: "SHARE", rowKey: token, token, projectId: request.params.projectId, label: body.label || "Project team",
-      expiresAt: body.expiresAt || new Date(Date.now() + 30 * 86400000).toISOString(), revoked: false,
-      createdAt: new Date().toISOString(), createdBy: principal(request)?.userDetails || "unknown"
-    };
-    await table.createEntity(share);
-    return { status: 201, jsonBody: { share: entity(share), urlPath: `/share/${token}` } };
+    const item = { partitionKey: "SHARE", rowKey: token, token, code, projectId: request.params.projectId, label: body.label || "Project team", expiresAt: body.expiresAt || new Date(Date.now() + 30 * 86400000).toISOString(), revoked: false, createdAt: new Date().toISOString() };
+    await table("shares").createEntity(item); await history(request.params.projectId, "share", "created", adminName(request), code);
+    return { status: 201, jsonBody: { share: clean(item), urlPath: `/share/${token}` } };
   }
 });
 
@@ -29,23 +23,25 @@ app.http("shareByToken", {
   methods: ["GET", "DELETE"], authLevel: "anonymous", route: "shares/{token}",
   handler: async (request): Promise<HttpResponseInit> => {
     await ensureTables();
-    const shareTable = sharesTable();
     if (request.method === "DELETE") {
-      if (!isAdmin(request)) return adminRequired();
-      await shareTable.updateEntity({ partitionKey: "SHARE", rowKey: request.params.token, revoked: true }, "Merge");
+      const denied = adminRequired(request); if (denied) return denied;
+      await table("shares").updateEntity({ partitionKey: "SHARE", rowKey: request.params.token, revoked: true }, "Merge");
       return { status: 204 };
     }
     try {
-      const share = await shareTable.getEntity<Record<string, unknown>>("SHARE", request.params.token);
-      if (share.revoked || new Date(String(share.expiresAt)).getTime() < Date.now()) return { status: 404, jsonBody: { error: "Share link is invalid or expired" } };
-      const projectId = String(share.projectId);
-      const project = entity(await projectsTable().getEntity("PROJECT", projectId));
-      const files = []; const observations = [];
-      for await (const item of filesTable().listEntities({ queryOptions: { filter: `PartitionKey eq '${projectId.replaceAll("'", "''")}'` } })) files.push({ ...entity(item), url: `/api/files/${item.rowKey}?share=${request.params.token}` });
-      for await (const item of observationsTable().listEntities({ queryOptions: { filter: `PartitionKey eq '${projectId.replaceAll("'", "''")}'` } })) observations.push(entity(item));
-      return { jsonBody: { project, files, observations } };
+      const share = await table("shares").getEntity<Record<string, unknown>>("SHARE", request.params.token);
+      if (share.revoked || new Date(String(share.expiresAt)).getTime() <= Date.now()) return { status: 404, jsonBody: { error: "Share code is invalid or expired" } };
+      const project = await findByRowKey("projects", String(share.projectId));
+      if (!project) return { status: 404, jsonBody: { error: "Project not found" } };
+      const place = await findByRowKey("places", String(project.placeId));
+      const organisation = place ? await findByRowKey("organisations", String(place.organisationId)) : null;
+      const walkovers = await list("walkovers", `PartitionKey eq '${escapeOData(String(share.projectId))}'`);
+      const walkoverIds = new Set(walkovers.map((item) => String(item.id)));
+      const files = (await list("files")).filter((item) => walkoverIds.has(String(item.walkoverId))).map((item) => ({ ...item, url: `/api/files/${item.id}?share=${request.params.token}` }));
+      const observations = (await list("observations")).filter((item) => walkoverIds.has(String(item.walkoverId)));
+      return { jsonBody: { organisation, place, project, walkovers, files, observations } };
     } catch (error) {
-      if ((error as { statusCode?: number }).statusCode === 404) return { status: 404, jsonBody: { error: "Share link not found" } };
+      if ((error as { statusCode?: number }).statusCode === 404) return { status: 404, jsonBody: { error: "Share code not found" } };
       throw error;
     }
   }
@@ -55,16 +51,14 @@ app.http("resolveProjectCode", {
   methods: ["GET"], authLevel: "anonymous", route: "project-code/{code}",
   handler: async (request): Promise<HttpResponseInit> => {
     await ensureTables();
-    const code = request.params.code.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-    let projectId = "";
-    for await (const project of projectsTable().listEntities<Record<string, unknown>>({ queryOptions: { filter: `code eq '${code.replaceAll("'", "''")}'`, select: ["rowKey"] } })) {
-      projectId = String(project.rowKey); break;
-    }
-    if (!projectId) return { status: 404, jsonBody: { error: "Project code not found" } };
-    const now = new Date().toISOString();
-    for await (const share of sharesTable().listEntities<Record<string, unknown>>({ queryOptions: { filter: `projectId eq '${projectId.replaceAll("'", "''")}' and revoked eq false` } })) {
-      if (String(share.expiresAt) > now) return { jsonBody: { token: share.rowKey } };
-    }
-    return { status: 404, jsonBody: { error: "No active share link exists for this project" } };
+    const code = exactCode(request.params.code);
+    if (!code) return { status: 400, jsonBody: { error: "Code must contain exactly 10 letters or numbers" } };
+    const matches = await list("shares", `code eq '${escapeOData(code)}' and revoked eq false`);
+    const active = matches.find((item) => new Date(String(item.expiresAt)).getTime() > Date.now());
+    return active ? { jsonBody: { token: active.token } } : { status: 404, jsonBody: { error: "Code is invalid or expired" } };
   }
 });
+
+async function findByRowKey(name: "organisations" | "places" | "projects", id: string) {
+  return (await list(name, `RowKey eq '${escapeOData(id)}'`))[0] || null;
+}

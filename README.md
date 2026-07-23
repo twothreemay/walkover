@@ -1,69 +1,53 @@
-# Walkover
+# TwinPlaces
 
-Azure-backed React/Vite application for managing and sharing highway reality
-captures.
+TwinPlaces is a place-based digital twin prototype for local authorities,
+engineering consultants and asset owners. A **Place** is the long-term
+container for projects, site walkovers, reality and design models, inspections,
+observations, documents and change over time.
 
 ## Architecture
 
-- Vite and React front end, built to `dist`
-- Azure Static Web Apps Microsoft Entra ID authentication
-- Static Web Apps `admin` role for all administration routes and APIs
-- Azure Functions v4 API in `api/`
-- Azure Table Storage for projects, observations, share links and file metadata
-- Private Azure Blob Storage container for Polycam models and site images
+- React and Vite front end
+- Azure Static Web Apps, output directory `dist`
+- Azure Functions v4 in `api`
+- Azure Table Storage repositories for organisations, places, projects,
+  walkovers, observations/actions, shares, files and history
+- Private Azure Blob Storage for models, photographs and documents
+- Standalone administrator login with a bcrypt hash held only in Azure settings
+- Signed, Secure, HttpOnly, SameSite=Strict session cookie
 
-No application credentials or administrator passwords are stored in the front
-end. Static Web Apps supplies the signed `x-ms-client-principal` identity to the
-Functions API. The API independently checks the `admin` role before every
-administrative operation.
+The storage layer is isolated behind Functions so it can later be replaced by
+PostgreSQL, Azure SQL or Cosmos DB without rebuilding the React interface.
 
 ## Build
 
 ```bash
-npm install
+npm ci
 npm run build
 
 cd api
-npm install
+npm ci
 npm run build
 ```
 
-The front-end deployment output is `dist`.
+The Static Web Apps workflow uses:
 
-## Azure Static Web Apps settings
+- `app_location: /`
+- `api_location: api`
+- `output_location: dist`
 
-The included GitHub Actions workflow uses:
+## Required Azure environment variables
 
-- App location: `/`
-- API location: `api`
-- Output location: `dist`
-
-Add these application settings to the Static Web App:
-
-| Setting | Purpose |
+| Variable | Purpose |
 | --- | --- |
-| `AZURE_STORAGE_CONNECTION_STRING` | Table and Blob Storage connection |
-| `AZURE_STORAGE_CONTAINER` | Optional private Blob container name; defaults to `walkover-files` |
+| `ADMIN_USERNAME` | Standalone administrator username |
+| `ADMIN_PASSWORD_HASH` | bcrypt hash of the administrator password |
+| `SESSION_SECRET` | Random secret of at least 32 characters used to sign sessions |
+| `AZURE_STORAGE_CONNECTION_STRING` | Server-side Table and Blob Storage connection |
 
-The storage account connection string is server-only. Do not prefix it with
-`VITE_` or expose it to the browser.
+Optional: `AZURE_STORAGE_CONTAINER` changes the private Blob container name
+from its default, `twinplaces-files`.
 
-## Authentication and administrator role
-
-1. Deploy the Static Web App.
-2. Open `/.auth/login/aad` to sign in with Microsoft Entra ID.
-3. In the Azure portal, open the Static Web App's **Role management** page.
-4. Invite the required account and assign the custom role `admin`.
-5. Sign out and back in so the new role is included in the principal.
-
-`staticwebapp.config.json` protects `/admin` and `/api/projects*` with the
-`admin` role. Public project viewers only receive data through an active,
-unrevoked and unexpired share token.
-
-## Local development
-
-Use Azure Static Web Apps CLI with Azurite and an emulated authenticated
-principal when testing the complete application locally. Copy
-`api/local.settings.example.json` to `api/local.settings.json` and insert an
-Azurite or development storage connection string. Never commit the resulting
-file.
+Generate the bcrypt password hash outside the repository using your approved
+secrets-management process. Never commit a real password, hash, connection
+string or session secret.

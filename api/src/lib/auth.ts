@@ -1,26 +1,74 @@
-import type { HttpRequest } from "@azure/functions";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import type { HttpRequest, HttpResponseInit } from "@azure/functions";
+import bcrypt from "bcryptjs";
 
-export type ClientPrincipal = {
-  identityProvider: string;
-  userId: string;
-  userDetails: string;
-  userRoles: string[];
-};
+const COOKIE_NAME = "twinplaces_session";
+const SESSION_SECONDS = 8 * 60 * 60;
 
-export function principal(request: HttpRequest): ClientPrincipal | null {
-  const encoded = request.headers.get("x-ms-client-principal");
-  if (!encoded) return null;
+type Session = { username: string; expiresAt: number };
+
+function required(name: string) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not configured`);
+  if (name === "SESSION_SECRET" && value.length < 32) throw new Error("SESSION_SECRET must contain at least 32 characters");
+  return value;
+}
+
+function encode(value: string) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function signature(payload: string) {
+  return createHmac("sha256", required("SESSION_SECRET")).update(payload).digest("base64url");
+}
+
+function readCookie(request: HttpRequest) {
+  const cookie = request.headers.get("cookie") || "";
+  return cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE_NAME}=`))?.slice(COOKIE_NAME.length + 1) || "";
+}
+
+export function createSession(username: string) {
+  const payload = encode(JSON.stringify({ username, expiresAt: Date.now() + SESSION_SECONDS * 1000 }));
+  return `${payload}.${signature(payload)}`;
+}
+
+export function session(request: HttpRequest): Session | null {
+  const [payload, supplied] = readCookie(request).split(".");
+  if (!payload || !supplied) return null;
+  const expected = signature(payload);
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
-    return JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as ClientPrincipal;
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Session;
+    return parsed.username && parsed.expiresAt > Date.now() ? parsed : null;
   } catch {
     return null;
   }
 }
 
-export function isAdmin(request: HttpRequest) {
-  return principal(request)?.userRoles?.includes("admin") === true;
+export async function verifyCredentials(username: string, password: string) {
+  const configured = required("ADMIN_USERNAME");
+  const left = Buffer.from(username);
+  const right = Buffer.from(configured);
+  const usernameMatches = left.length === right.length && timingSafeEqual(left, right);
+  if (!usernameMatches) return false;
+  try { return await bcrypt.compare(password, required("ADMIN_PASSWORD_HASH")); }
+  catch { return false; }
 }
 
-export function adminRequired() {
-  return { status: 403, jsonBody: { error: "Administrator role required" } };
+export function sessionCookie(value: string) {
+  return `${COOKIE_NAME}=${value}; Path=/; Max-Age=${SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict`;
+}
+
+export function clearSessionCookie() {
+  return `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`;
+}
+
+export function adminRequired(request: HttpRequest): HttpResponseInit | null {
+  return session(request) ? null : { status: 401, jsonBody: { error: "Administrator session required" } };
+}
+
+export function adminName(request: HttpRequest) {
+  return session(request)?.username || "admin";
 }

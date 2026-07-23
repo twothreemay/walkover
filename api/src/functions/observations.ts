@@ -1,46 +1,36 @@
 import { app, HttpResponseInit } from "@azure/functions";
-import { adminRequired, isAdmin, principal } from "../lib/auth.js";
-import { ensureTables, entity, observationsTable } from "../lib/storage.js";
+import { adminName, adminRequired } from "../lib/auth.js";
+import { clean, ensureTables, escapeOData, history, list, table } from "../lib/storage.js";
 
-type ObservationInput = { title?: string; category?: string; status?: string; notes?: string; position?: string };
+type Input = { title?: string; category?: string; recordType?: string; status?: string; notes?: string; assignee?: string; dueDate?: string; position?: string };
 
 app.http("observations", {
-  methods: ["GET", "POST"], authLevel: "anonymous", route: "projects/{projectId}/observations",
+  methods: ["GET", "POST"], authLevel: "anonymous", route: "walkovers/{walkoverId}/observations",
   handler: async (request): Promise<HttpResponseInit> => {
-    if (!isAdmin(request)) return adminRequired();
+    const denied = adminRequired(request); if (denied) return denied;
     await ensureTables();
-    const projectId = request.params.projectId;
-    const table = observationsTable();
-    if (request.method === "GET") {
-      const observations = [];
-      for await (const item of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${projectId.replaceAll("'", "''")}'` } })) observations.push(entity(item));
-      return { jsonBody: { observations } };
-    }
-    const body = await request.json() as ObservationInput;
-    if (!body.title?.trim()) return { status: 400, jsonBody: { error: "Observation title is required" } };
-    const id = crypto.randomUUID();
-    const observation = {
-      partitionKey: projectId, rowKey: id, id, projectId, title: body.title.trim(), category: body.category || "General",
-      status: body.status || "open", notes: body.notes || "", position: body.position || "",
-      createdAt: new Date().toISOString(), createdBy: principal(request)?.userDetails || "unknown"
-    };
-    await table.createEntity(observation);
-    return { status: 201, jsonBody: { observation: entity(observation) } };
+    if (request.method === "GET") return { jsonBody: { observations: await list("observations", `PartitionKey eq '${escapeOData(request.params.walkoverId)}'`) } };
+    const body = await request.json() as Input;
+    if (!body.title?.trim()) return { status: 400, jsonBody: { error: "Title is required" } };
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const item = { partitionKey: request.params.walkoverId, rowKey: id, id, walkoverId: request.params.walkoverId, title: body.title.trim(), category: body.category || "General", recordType: body.recordType || "Observation", status: body.status || "Open", notes: body.notes || "", assignee: body.assignee || "", dueDate: body.dueDate || "", position: body.position || "", createdAt: now, updatedAt: now };
+    await table("observations").createEntity(item); await history(request.params.walkoverId, "observation", "created", adminName(request), item.title);
+    return { status: 201, jsonBody: { observation: clean(item) } };
   }
 });
 
 app.http("observationById", {
-  methods: ["PATCH", "DELETE"], authLevel: "anonymous", route: "projects/{projectId}/observations/{id}",
+  methods: ["PATCH", "DELETE"], authLevel: "anonymous", route: "walkovers/{walkoverId}/observations/{id}",
   handler: async (request): Promise<HttpResponseInit> => {
-    if (!isAdmin(request)) return adminRequired();
-    await ensureTables();
-    const table = observationsTable();
+    const denied = adminRequired(request); if (denied) return denied;
     if (request.method === "DELETE") {
-      await table.deleteEntity(request.params.projectId, request.params.id);
+      await table("observations").deleteEntity(request.params.walkoverId, request.params.id);
+      await history(request.params.walkoverId, "observation", "deleted", adminName(request), request.params.id);
       return { status: 204 };
     }
-    const body = await request.json() as ObservationInput;
-    await table.updateEntity({ partitionKey: request.params.projectId, rowKey: request.params.id, ...body, updatedAt: new Date().toISOString() }, "Merge");
+    const body = await request.json() as Input;
+    await table("observations").updateEntity({ partitionKey: request.params.walkoverId, rowKey: request.params.id, ...body, updatedAt: new Date().toISOString() }, "Merge");
+    await history(request.params.walkoverId, "observation", "updated", adminName(request), body.title || request.params.id);
     return { status: 204 };
   }
 });
