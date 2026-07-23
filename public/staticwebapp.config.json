@@ -1,7 +1,20 @@
 {
+  "routes": [
+    { "route": "/admin*", "allowedRoles": ["admin"] },
+    { "route": "/api/projects*", "allowedRoles": ["admin"] },
+    { "route": "/api/files*", "allowedRoles": ["anonymous", "authenticated", "admin"] },
+    { "route": "/api/shares*", "allowedRoles": ["anonymous", "authenticated", "admin"] },
+    { "route": "/api/project-code*", "allowedRoles": ["anonymous", "authenticated", "admin"] }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/*.glb", "/*.gltf", "/*.png", "/*.svg"]
+    "exclude": ["/api/*", "/.auth/*", "/assets/*", "/*.glb", "/*.gltf", "/*.png", "/*.svg"]
+  },
+  "responseOverrides": {
+    "401": {
+      "redirect": "/.auth/login/aad?post_login_redirect_uri=.referrer",
+      "statusCode": 302
+    }
   },
   "mimeTypes": {
     ".glb": "model/gltf-binary",
@@ -10,5 +23,6 @@
   "globalHeaders": {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin"
-  }
+  },
+  "platform": { "apiRuntime": "node:20" }
 }
