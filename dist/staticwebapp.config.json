@@ -1,0 +1,14 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/assets/*", "/*.glb", "/*.gltf", "/*.png", "/*.svg"]
+  },
+  "mimeTypes": {
+    ".glb": "model/gltf-binary",
+    ".gltf": "model/gltf+json"
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  }
+}
