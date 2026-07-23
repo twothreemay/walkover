@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784839264387,
+      "tag": "0000_same_apocalypse",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784839954038,
+      "tag": "0001_superb_bug",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784841040906,
+      "tag": "0002_uneven_spencer_smythe",
+      "breakpoints": true
+    }
+  ]
+}
