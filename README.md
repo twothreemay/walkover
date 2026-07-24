@@ -1,6 +1,6 @@
-# TwinPlaces
+# Places
 
-TwinPlaces is a place-based digital twin prototype for local authorities,
+Places is a place-based digital twin prototype for local authorities,
 engineering consultants and asset owners. A **Place** is the long-term
 container for projects, site walkovers, reality and design models, inspections,
 observations, documents and change over time.

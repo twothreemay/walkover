@@ -51,29 +51,15 @@ function Welcome({ navigate }: { navigate: (path: string) => void }) {
   return <main className="welcome-shell">
     <Header navigate={navigate}><button className="ghost-button" onClick={() => navigate("/admin")}>Admin access <span>→</span></button></Header>
     <section className="welcome-hero">
-      <div className="hero-copy">
-        <span className="eyebrow">PLACE-BASED DIGITAL TWIN PLATFORM</span>
-        <h1>A shared digital record of places.</h1>
-        <p className="hero-proposition">Bringing together reality capture, design information, inspections, assets and change over time.</p>
-        <div className="audience">For local authorities · engineering consultants · asset owners</div>
-      </div>
       <form className="access-card" onSubmit={submit}>
-        <span className="eyebrow">SHARED ACCESS</span>
-        <h2>Open a place record</h2>
-        <p>Enter the 10-character code supplied by your project administrator.</p>
+        <h1>Project access</h1>
         <label htmlFor="place-code">ACCESS CODE</label>
         <input id="place-code" inputMode="text" autoComplete="off" value={code} onChange={(event) => { setCode(cleanCode(event.target.value)); setError(""); }} placeholder="AB12CD34EF" maxLength={10} />
         <div className="code-progress"><span>{code.length}/10</span><i style={{ width: `${code.length * 10}%` }} /></div>
         {error && <div className="form-error" role="alert">{error}</div>}
-        <button className="primary-button" disabled={code.length !== 10 || busy}>{busy ? "Checking access…" : "Open TwinPlace"} <span>→</span></button>
+        <button className="primary-button" disabled={code.length !== 10 || busy}>{busy ? "Checking access…" : "Continue"} <span>→</span></button>
       </form>
     </section>
-    <section className="product-story">
-      <div><span>01</span><h2>Capture the place</h2><p>Bring Polycam and other reality models, site photographs and walkover records into one controlled place record.</p></div>
-      <div><span>02</span><h2>Connect the work</h2><p>Organise projects, design models, documents, observations and inspections around the geography they describe.</p></div>
-      <div><span>03</span><h2>Build the history</h2><p>Retain each survey and decision over time, creating the foundations for a useful, evolving digital twin.</p></div>
-    </section>
-    <footer><span>TwinPlaces</span><span>Reality · Design · Assets · Change</span></footer>
   </main>;
 }
 
@@ -98,7 +84,7 @@ function Login({ navigate, onLogin }: { navigate: (path: string) => void; onLogi
     finally { setBusy(false); }
   }
   return <main className="login-shell"><Header navigate={navigate} /><form className="login-card" onSubmit={submit}>
-    <span className="eyebrow">TWINPLACES ADMINISTRATION</span><h1>Sign in</h1><p>Use the administrator credentials configured securely in Azure.</p>
+    <span className="eyebrow">PLACES ADMINISTRATION</span><h1>Sign in</h1><p>Use the administrator credentials configured securely in Azure.</p>
     <label>Username<input name="username" autoComplete="username" required /></label>
     <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
     {error && <div className="form-error">{error}</div>}
@@ -219,7 +205,7 @@ function Admin({ navigate, username, onLogout }: { navigate: (path: string) => v
   const placeProjects = projects.filter((project) => project.placeId === selectedPlace?.id);
   return <main className="admin-shell">
     <Header navigate={navigate}><div className="admin-user"><span>{username}</span><button onClick={onLogout}>Sign out</button></div></Header>
-    <div className="admin-bar"><div><span className="eyebrow">TWINPLACES ADMINISTRATION</span><h1>Places</h1><p>Manage shared place records, projects, walkovers and information over time.</p></div><div className="admin-create"><button onClick={() => setModal("organisation")}>＋ Organisation</button><button onClick={() => setModal("place")}>＋ Place</button></div></div>
+    <div className="admin-bar"><div><span className="eyebrow">PLACES ADMINISTRATION</span><h1>Places</h1><p>Manage shared place records, projects, walkovers and information over time.</p></div><div className="admin-create"><button onClick={() => setModal("organisation")}>＋ Organisation</button><button onClick={() => setModal("place")}>＋ Place</button></div></div>
     {error && <div className="admin-error">{error}<button onClick={() => setError("")}>×</button></div>}
     <div className="admin-workspace">
       <aside className="place-browser">
@@ -360,10 +346,10 @@ function MeasurementViewer({ src }: { src: string }) {
 }
 
 function Header({ navigate, children }: { navigate: (path: string) => void; children?: React.ReactNode }) {
-  return <header className="site-header"><button className="brand" onClick={() => navigate("/")}><i>TP</i><span>TwinPlaces</span></button>{children}</header>;
+  return <header className="site-header"><button className="brand" onClick={() => navigate("/")}><i>P</i><span>Places</span></button>{children}</header>;
 }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><i>⌖</i><h2>{title}</h2><p>{text}</p></div>; }
-function Loading({ label }: { label: string }) { return <main className="loading-page"><div className="brand-static"><i>TP</i><span>TwinPlaces</span></div><p>{label}</p></main>; }
+function Loading({ label }: { label: string }) { return <main className="loading-page"><div className="brand-static"><i>P</i><span>Places</span></div><p>{label}</p></main>; }
 function ErrorPage({ navigate, text }: { navigate: (path: string) => void; text: string }) { return <main className="loading-page"><h1>Place unavailable</h1><p>{text}</p><button className="primary-button compact" onClick={() => navigate("/")}>Return home</button></main>; }
 function sanitiseCode(value: string) { return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 10); }
 function point(x: number, y: number, z: number): MeasurePoint { return { x, y, z, position: `${x}m ${y}m ${z}m` }; }
